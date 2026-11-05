@@ -52,6 +52,17 @@ def prepare(root, stock, firmware, edition_name='ios107-tmg3-edition'):
     text,n=re.subn(r'static NSDictionary \*PayloadPins\(void\)\{return @\{.*?\};\}',lambda _:pin_text,text,flags=re.S)
     require(n==1,'payload_pin_table_shape')
     file.write_text(text,encoding='utf-8',newline='\n')
+    file=target/'ExperimentalOTAFeed.m';text=file.read_text(encoding='utf-8')
+    text=replace_once(text,'@[@"01.00.04.0012",@"01.00.05.0005"]','@[@"01.00.05.0012"]','feed_source_version')
+    file.write_text(text,encoding='utf-8',newline='\n')
+    file=target/'ExperimentalOTAFeedTests.m';text=file.read_text(encoding='utf-8')
+    text=text.replace('01.00.04.0012','01.00.05.0012')
+    text=replace_once(text,'@"Range: bytes=8842882-\\r\\n"',
+        '[NSString stringWithFormat:@"Range: bytes=%lu-\\r\\n",(unsigned long)(zip.length-14)]','feed_range_tail')
+    text=replace_once(text,'    NSData *zip=[NSData dataWithContentsOfURL:file];', '''    for(NSString *wrongVersion in @[@"01.00.04.0012",@"01.00.05.0005",@"01.00.06.0000"])
+        assert(Query(port,[path stringByReplacingOccurrencesOfString:@"01.00.05.0012" withString:wrongVersion])[@"data"]==NSNull.null);
+    NSData *zip=[NSData dataWithContentsOfURL:file];''','feed_rejects_other_versions')
+    file.write_text(text,encoding='utf-8',newline='\n')
     file=target/'ExperimentalOTAFlash.m';text=file.read_text(encoding='utf-8')
     text=replace_once(text,'@[@"Strix OS 1.0.4.12",@"Strix OS 1.0.5.12"]','@[@"Strix OS 1.0.5.12"]','device_version_gate')
     text=text.replace('1.0.4.12 或 1.0.5.12 有效回读','1.0.5.12 有效回读')
