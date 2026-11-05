@@ -1,0 +1,59 @@
+name: Build local Turbo IO iOS107 TMG3 addon
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tmg3-addon
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - name: Checkout build recipe
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Fetch exact public source and firmware inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --no-checkout https://github.com/Turbo1123/Turbo-IO.git upstream
+          git -C upstream sparse-checkout init --cone
+          git -C upstream sparse-checkout set official-addon
+          git -C upstream checkout --detach f983669a2db1c2a658f7d4c50285b81aa074345a
+          release=https://github.com/Fnckerpoi/Cheater-IO/releases/download/strix-1.0.5.12-tmg3-20261103
+          curl --fail --location --retry 3 "$release/Strix-OS-1.0.5.12-OFFICIAL.zip" -o "$RUNNER_TEMP/stock.zip"
+          curl --fail --location --retry 3 "$release/Strix-OS-1.0.5.12-TMG3.zip" -o "$RUNNER_TEMP/tmg3.zip"
+      - name: Audit firmware and generate separate edition
+        run: python3 prepare.py --source-root upstream --stock "$RUNNER_TEMP/stock.zip" --firmware "$RUNNER_TEMP/tmg3.zip"
+      - name: Run native offline tests with sanitizers
+        run: python3 upstream/official-addon/ios107-tmg3-edition/test.py --stock "$RUNNER_TEMP/stock.zip" --firmware "$RUNNER_TEMP/tmg3.zip"
+      - name: Build embedded arm64 iOS addon
+        env:
+          TIO_IMAGE_RX_LAB: '1'
+          TIO_IMAGE_RX_WIDE: '1'
+          TIO_DISPLAY_PHONE: '1'
+          TIO_DISPLAY_FLASH: '1'
+          TIO_OTA_FLASH_ENABLED: '1'
+          TIO_CLASSIC_BINDINGS: '1'
+          TIO_AMAP_ENABLED: '0'
+        run: bash upstream/official-addon/ios107-tmg3-edition/build.sh embedded com.turboio.rayneo.tmg3.local
+      - name: Collect addon and nonsecret build evidence
+        run: python3 collect_artifact.py --edition upstream/official-addon/ios107-tmg3-edition --output artifact
+      - name: Upload addon and test report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: turboio-ios107-tmg3-addon
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 3
+      - name: Upload logs if compilation fails
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: offline-test-logs
+          path: upstream/official-addon/ios107-tmg3-edition/build/tests/*.log
+          if-no-files-found: ignore
+          retention-days: 3
