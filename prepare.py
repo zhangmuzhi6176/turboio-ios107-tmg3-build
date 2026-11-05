@@ -25,6 +25,12 @@ def prepare(root, stock, firmware, edition_name='ios107-tmg3-edition'):
     target=root/'official-addon'/edition_name
     require(not target.exists(),'generated_edition_already_exists')
     shutil.copytree(source,target,ignore=shutil.ignore_patterns('build','__pycache__','.DS_Store'))
+    # Upstream's ios107 export references this shared parser but omits the files.
+    # Restore the public implementation directly from the same immutable commit.
+    shared=['PrivateBootstrap.h','PrivateBootstrap.m']
+    for name in shared:
+        require(not (target/name).exists(),'unexpected_shared_file_'+name)
+        (target/name).write_bytes(subprocess.check_output(command+['show','HEAD:official-addon/'+name]))
     # Normalise text sources for Xcode/bash; no original firmware bytes are edited.
     for file in target.rglob('*'):
         if file.is_file() and file.suffix in ('.sh','.m','.h','.c','.py','.mjs','.json','.md'):
@@ -117,6 +123,7 @@ with tempfile.TemporaryDirectory(prefix='turbo-host-test-') as tmp:
     manifest=dict(upstream=UPSTREAM,hostVersion='1.0.7',hostBuild='230',bundle=BUNDLE,marker=MARKER,
                   firmwareSHA256=CANDIDATE_SHA,deviceSourceVersions=['Strix OS 1.0.5.12'],
                   modifiedFiles=sorted(set(changed+['test.py','README.md'])),
+                  restoredSharedFiles=shared,
                   deviceIO=False,runtimeValidated=False,sideBySide=True,
                   sourceHashes={p.relative_to(target).as_posix():hashlib.sha256(p.read_bytes()).hexdigest()
                                 for p in target.rglob('*') if p.is_file() and p.suffix in ('.m','.h','.c','.sh')})
