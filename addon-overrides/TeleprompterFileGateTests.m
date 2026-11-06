@@ -33,6 +33,9 @@ int main(void){@autoreleasepool{
  Arm(g,body.length);[g observeMethod:@"rayneonet_sendMessage" arguments:@{@"deviceId":Peer,@"businessId":@20,@"payload":Packet(6,@{@"action":@1,@"did":Doc})} otaStage:0 uptime:11];assert(!Send(g,File(path)));
  Arm(g,body.length);[g observeEvent:@{@"eventType":@"messageReceived",@"message":@{@"deviceId":Peer,@"businessId":@20,@"payload":Packet(2,@{@"action":@2,@"did":Doc,@"code":@0})}} uptime:11];assert(!Send(g,File(path)));
  Arm(g,body.length);[g observeMethod:@"rayneonet_sendMessage" arguments:Prepare(Peer,@"another-document",body.length,2) otaStage:0 uptime:11];assert(!Send(g,File(path)));
+ Arm(g,body.length);[g observeMethod:@"rayneonet_sendMessage" arguments:@{@"deviceId":Peer,@"businessId":@20,@"payload":NSData.data} otaStage:0 uptime:11];assert(!Send(g,File(path)));
+ for(id invalidTotal in @[@YES,@0,@(-1),@1.5]){NSDictionary *bad=@{@"deviceId":Peer,@"businessId":@20,@"payload":Packet(2,@{@"action":@1,@"did":Doc,@"scroll":@2,@"total":invalidTotal})};[g observeMethod:@"rayneonet_sendMessage" arguments:bad otaStage:0 uptime:10];assert(!Send(g,File(path)));}
+ [g observeMethod:@"rayneonet_sendMessage" arguments:Prepare(Peer,@"../unsafe",body.length,2) otaStage:0 uptime:10];assert(!Send(g,File(path)));
  // A business-9 OTA payload never arms the exception; OTA methods never pass.
  [g invalidate];NSMutableDictionary *ota=[Prepare(Peer,Doc,body.length,2)mutableCopy];ota[@"businessId"]=@9;[g observeMethod:@"rayneonet_sendMessage" arguments:ota otaStage:0 uptime:10];assert(!Send(g,File(path)));
  Arm(g,body.length);assert(![g allowsMethod:@"rayneonet_startOTA" arguments:File(path) otaStage:0 uptime:11]);assert(![g allowsMethod:@"rayneonet_sendFileAlternate" arguments:File(path) otaStage:0 uptime:11]);

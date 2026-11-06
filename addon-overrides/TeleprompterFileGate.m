@@ -27,7 +27,7 @@ static BOOL UTF8Text(NSData *d){
  return YES;
 }
 @implementation TIOTeleprompterFileGate {
- NSString *_container,*resolvedContainer,*device,*did,*checksum,*reason;
+ NSString *_container,*_resolvedContainer,*_device,*_did,*_checksum,*_reason;
  NSUInteger _total;NSTimeInterval _preparedAt;
 }
 - (instancetype)initWithContainer:(NSString *)container{
@@ -51,6 +51,7 @@ static BOOL UTF8Text(NSData *d){
   if(_device&&Text(peer)&&![_device isEqual:peer])[self clear:@"device_changed"];
   if(![method isEqual:@"rayneonet_sendMessage"]||!Is(a[@"businessId"],20))return;
   NSDictionary *e=TIOTodoEnvelope(Bytes(a[@"payload"]));id j=e[@"json"];
+  if(!e){[self clear:@"invalid_tele_message"];return;}
   if(Is(e[@"type"],6)){[self clear:@"prepare_cancelled"];return;}
   if(!Is(e[@"type"],2))return;
   // Every fresh prepare supersedes the previous allowance, including bad input.
