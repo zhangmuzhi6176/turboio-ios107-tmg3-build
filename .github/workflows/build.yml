@@ -28,8 +28,8 @@ jobs:
           curl --fail --location --retry 3 "$release/Strix-OS-1.0.5.12-TMG3.zip" -o "$RUNNER_TEMP/tmg3.zip"
       - name: Audit firmware and generate separate edition
         run: python3 prepare.py --source-root upstream --stock "$RUNNER_TEMP/stock.zip" --firmware "$RUNNER_TEMP/tmg3.zip"
-      - name: Test SDK resource packaging boundaries
-        run: python3 -m unittest -v test_amap_support.py
+      - name: Test SDK download and resource packaging boundaries
+        run: python3 -m unittest -v test_amap_support.py test_amap_download.py
       - name: Run native offline tests with sanitizers
         run: python3 upstream/official-addon/ios107-tmg3-edition/test.py --stock "$RUNNER_TEMP/stock.zip" --firmware "$RUNNER_TEMP/tmg3.zip"
       - name: Fetch reviewed AMap 11.3.100 and verify SDK version headers

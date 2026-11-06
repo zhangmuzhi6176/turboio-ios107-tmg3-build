@@ -10,7 +10,9 @@ import json
 import os
 import re
 import stat
-import urllib.request
+import subprocess
+import tempfile
+from urllib.parse import urlsplit
 import zipfile
 from pathlib import Path
 from amap_support import (ARCHIVES, FRAMEWORKS, FRAMEWORK_SHA256, RESOURCES, VERSIONS, digest,
@@ -24,23 +26,51 @@ INNER = {
 }
 
 
+def validate_archive(path, pin):
+    no_links(path)
+    require(path.is_file() and path.stat().st_size == pin['bytes']
+            and digest(path) == pin['sha256'], 'amap_pinned_archive_mismatch_' + path.name)
+
+
+def download_archive(path, pin):
+    """Publish only a verified download; leave existing cache entries untouched."""
+    descriptor, temporary_name = tempfile.mkstemp(prefix='.amap-download-', suffix='.part', dir=path.parent)
+    os.close(descriptor)
+    temporary = Path(temporary_name)
+    try:
+        # -q must be the first curl argument: do not load credentials or options
+        # from a user's curlrc. IPv4 avoids serial unreachable IPv6 attempts.
+        command = [
+            'curl', '-q', '-4', '--silent', '--show-error', '--fail', '--location',
+            '--proto', '=https', '--proto-redir', '=https', '--max-redirs', '3',
+            '--connect-timeout', '15', '--max-time', '240',
+            '--retry', '2', '--retry-delay', '2', '--retry-max-time', '300',
+            '--max-filesize', str(pin['bytes']), '--output', str(temporary),
+            '--write-out', '%{url_effective}', pin['url'],
+        ]
+        # curl's retry-max-time only prevents starting another retry. This is
+        # the independent hard limit for the process, including every retry.
+        result = subprocess.run(command, check=True, capture_output=True, text=True, timeout=360)
+        final = urlsplit(result.stdout.strip())
+        require(final.scheme == 'https' and final.netloc == 'a.amap.com'
+                and final.path.startswith('/'), 'amap_unexpected_download_redirect')
+        validate_archive(temporary, pin)
+        # Same-directory hard-link publication is atomic and, unlike replace(),
+        # cannot overwrite a cache entry created concurrently. The finally block
+        # drops only this download's temporary name, leaving one cache link.
+        os.link(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def obtain(archives):
     archives.mkdir(parents=True, exist_ok=True)
     no_links(archives)
     for name, pin in ARCHIVES.items():
         path = archives / name
-        if not path.exists():
-            with urllib.request.urlopen(pin['url'], timeout=60) as incoming:
-                require(incoming.url.startswith('https://a.amap.com/'), 'amap_unexpected_download_redirect')
-                with path.open('xb') as output:
-                    total = 0
-                    while chunk := incoming.read(1024 * 1024):
-                        total += len(chunk)
-                        require(total <= pin['bytes'], 'amap_archive_size_changed')
-                        output.write(chunk)
-        no_links(path)
-        require(path.stat().st_size == pin['bytes'] and digest(path) == pin['sha256'],
-                'amap_pinned_archive_mismatch_' + name)
+        if not path.exists() and not path.is_symlink():
+            download_archive(path, pin)
+        validate_archive(path, pin)
 
 
 def extract_framework(archive, framework, destination):
