@@ -50,7 +50,7 @@ def run(a):
                 and built['firmwareSHA256']==CANDIDATE_SHA and built['nativeTestsPassed']
                 and built['buildRecipeCommit']==a.recipe_commit,'build_manifest_mismatch')
         native=json.loads((a.artifact/'native-test-report.json').read_text())
-        required_groups={'ota-host','archive','directory','flash','feed','dashboard-config-diagnostics'}
+        required_groups={'ota-host','archive','directory','flash','feed','dashboard-config-diagnostics','teleprompter-file-gate'}
         require(native['passed'] and required_groups.issubset(native['groups']),'native_tests_missing')
         local=json.loads((edition/'local-build-manifest.json').read_text())
         require(local['sourceHashes']==built['sourceHashes'],'cloud_local_source_differ')
@@ -96,7 +96,7 @@ def run(a):
     shutil.copyfile(a.artifact/'AMap-SDK-NOTICE.txt',app/'AMap-SDK-NOTICE.txt')
     shutil.copyfile(a.firmware,app/'TurboWeReadCandidate.zip')
     require(digest(app/'TurboWeReadCandidate.zip')==CANDIDATE_SHA,'packaged_firmware_mismatch')
-    ipa=out/'TurboIO_1.0.7_TMG3_待签名.ipa'
+    ipa=out/'TurboIO_1.0.7_TMG3_提词修复_v6_待签名.ipa'
     # Encode POSIX permissions explicitly; Windows extraction loses Unix mode bits.
     with zipfile.ZipFile(ipa,'x',compression=zipfile.ZIP_DEFLATED,compresslevel=6) as z:
         for f in sorted((out/'unpacked/Payload').rglob('*')):
@@ -126,11 +126,13 @@ def run(a):
         nativeTestsPassed=True,sideBySideIntent=True,amapEnabled=built['amapEnabled'],
         amapVersions=amap['versions'],amapResourceTreeSHA256=amap_resource_hashes,
         navigationRuntimeValidated=False,amapKeyConfigured=False,signed=False,
+        teleprompterFileFix='TELE-FILE-FIX01',teleprompterRuntimeValidated=False,
         installed=False,deviceIO=False,runtimeValidated=False,flashAuthorizedInApp=False,
         updateScope='phone-app-feature-update',glassesFirmwareReflashRequired=False,
         remaining=['Local Apple account signing with the existing custom app bundle ID',
                    'Install over the existing custom iPhone app and verify launch',
                    'Reconnect glasses and collect the dashboard configuration diagnostic',
+                   'Verify original teleprompter sends a short new manuscript and displays it on glasses',
                    'AMap iOS Key, service authorization and real navigation acceptance'])
     (out/'package-report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     print(json.dumps(report,ensure_ascii=False,indent=2))

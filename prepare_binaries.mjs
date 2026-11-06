@@ -37,6 +37,7 @@ if(addon!=='-'){
   check(data.includes(Buffer.from('com.turboio.rayneo.tmg3.local\0')),'addon_bundle');
   check(data.includes(Buffer.from('display extension=APP107-TMG3-PHONE-DEV01;')),'addon_marker');
   check(data.includes(Buffer.from('DASH-CONFIG-DIAG01\0')),'dashboard_diagnostic_marker');
+  check(data.includes(Buffer.from('TELE-FILE-FIX01\0')),'teleprompter_transfer_fix_marker');
   addonHash=sha(data);
   fs.writeFileSync(runnerFile,preparedRunner);
   fs.writeFileSync(appFile,route.output);

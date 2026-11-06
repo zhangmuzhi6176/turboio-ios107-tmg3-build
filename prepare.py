@@ -14,13 +14,16 @@ FEATURE_BASE_HASHES = {
     'EditorTransport.h': 'da326e0df3bb3eb7ebc9f3d874736d5ab489bddaf859ea18ddaf1870219e4518',
     'EditorTransport.m': 'ab27387793f66efb7ecfd12d7b2ad5e4820c1e1a54f2d1fa66a13320d9e6f463',
     'EditorUI.m': '9f409ba1ef8e236f7cca6f3316a9a9e6b32cd25260f4b791d7c79832cd8f753d',
+    'ExperimentalOTAFlash.m': '2092fdca8959d4e545076a58771be4e1e248709c41a511021ff8565cde96b3b1',
+    'TodoRuntime.m': '47d9f69af892e36c9592fb7e95a17d007346156da1fee373d3f1d86ac38a6ce2',
 }
 
 def apply_feature_overrides(target):
     """Apply reviewed phone-only changes after checking their exact input files."""
     overrides = Path(__file__).resolve().parent / 'addon-overrides'
-    test_name = 'DashboardConfigDiagnosticsTests.m'
-    names = set(FEATURE_BASE_HASHES) | {test_name}
+    additions = {'DashboardConfigDiagnosticsTests.m', 'TeleprompterFileGate.h',
+                 'TeleprompterFileGate.m', 'TeleprompterFileGateTests.m'}
+    names = set(FEATURE_BASE_HASHES) | additions
     require(overrides.is_dir(), 'missing_feature_overrides')
     require({p.name for p in overrides.iterdir()} == names, 'unexpected_feature_override_inventory')
     for name in sorted(names):
@@ -138,8 +141,16 @@ with tempfile.TemporaryDirectory(prefix='turbo-host-test-') as tmp:
     text=replace_once(text,"test('host',['HostCompatibilityTests.m'])",
         "test('host',['HostCompatibilityTests.m'])\n"
         "test('dashboard-config-diagnostics', ['DashboardConfigDiagnosticsTests.m', 'EditorCodec.m'], "
-        "extra=['-DTCE_DIAGNOSTIC_TEST=1'])",'dashboard_diagnostic_tests')
+        "extra=['-DTCE_DIAGNOSTIC_TEST=1'])\n"
+        "test('teleprompter-file-gate', ['TeleprompterFileGateTests.m', 'TeleprompterFileGate.m', 'TodoProtocol.m'])",'dashboard_diagnostic_tests')
+    text=replace_once(text,"gate=['ExperimentalOTA.m','ExperimentalOTAFlash.m','ExperimentalOTAGuard.m']",
+        "gate=['ExperimentalOTA.m','ExperimentalOTAFlash.m','ExperimentalOTAGuard.m',"
+        "'TeleprompterFileGate.m','TodoProtocol.m']",'teleprompter_gate_test_dependencies')
     file.write_text(text,encoding='utf-8',newline='\n')
+    file=target/'build.sh';text=file.read_text(encoding='utf-8')
+    text=replace_once(text,'EditorModel.m EditorCodec.m EditorTransport.m',
+        'EditorModel.m EditorCodec.m TeleprompterFileGate.m EditorTransport.m','teleprompter_gate_build')
+    file.write_text(text,encoding='utf-8',newline='\n');changed.append('build.sh')
     # Original signed packager is retained for reference but disabled here;
     # the separately audited Windows exporter produces an unsigned IPA.
     for name in ('package.mjs',):
@@ -158,6 +169,7 @@ with tempfile.TemporaryDirectory(prefix='turbo-host-test-') as tmp:
                   restoredSharedFiles=shared,
                   deviceIO=False,runtimeValidated=False,sideBySide=True,
                   dashboardDiagnostics='DASH-CONFIG-DIAG01',
+                  teleprompterFileFix='TELE-FILE-FIX01',
                   sourceHashes={p.relative_to(target).as_posix():hashlib.sha256(p.read_bytes()).hexdigest()
                                 for p in target.rglob('*') if p.is_file() and p.suffix in ('.m','.h','.c','.sh')})
     (target/'local-build-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')

@@ -1,4 +1,4 @@
-name: Build Turbo IO iOS107 TMG3 with pinned AMap 11.3.100
+name: Build Turbo IO TMG3 teleprompter fix with AMap
 on:
   workflow_dispatch:
 permissions:

@@ -1,4 +1,4 @@
-# Turbo IO iOS 1.0.7 / TMG3 dashboard diagnostics and AMap build recipe
+# Turbo IO iOS 1.0.7 / TMG3 teleprompter repair, diagnostics and AMap build recipe
 
 This repository contains public build instructions and source transformations only.
 It does not contain an IPA, Apple credentials, signing certificates, private settings,
@@ -15,8 +15,21 @@ The local edition uses `com.turboio.rayneo.tmg3.local` to retain the App Store a
 Only observed Strix OS 1.0.5.12 is admitted. Exact payload validation and manual,
 device-bound, one-shot flash permission remain enforced. No rollback guarantee.
 
+The earlier flash build rejected every unscoped `rayneonet_sendFile`, including the
+official teleprompter's normal manuscript transfer, even when no OTA was active.
+This edition adds a narrow, short-lived manuscript permission following a business-20
+prepare request. It validates the device, task/DID, announced UTF-8 byte length,
+optional checksum and a regular text file inside the app container, and consumes
+the permission once. OTA stages other than zero still reject these transfers.
+Generic files and business-9 OTA writes retain their previous checks. Disconnects
+and stop/new preparation events invalidate the old manuscript permission.
+The 1 MiB validation cap is a local resource limit, not a claimed firmware limit.
+The compiled repair is marked `TELE-FILE-FIX01`; physical transmission and lens
+display must still be tested after installing this phone update.
+
 The workflow runs native offline tests with AddressSanitizer/UndefinedBehaviorSanitizer,
-including the required `dashboard-config-diagnostics` group, then compiles with the
+including the required `dashboard-config-diagnostics` and `teleprompter-file-gate`
+groups, then compiles with the
 iOS SDK on a standard `macos-15` runner. It includes the explicitly reviewed AMap
 Navi **11.3.100**, Foundation **1.9.4**, and Search **9.8.1** static SDKs. Local
 translation models are excluded; no private API keys are needed to build.

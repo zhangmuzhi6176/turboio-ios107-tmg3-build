@@ -14,10 +14,11 @@ p.add_argument('--amap-sdk-root',type=Path,required=True)
 a=p.parse_args();src=a.edition;out=a.output
 manifest=json.loads((src/'local-build-manifest.json').read_text())
 tests=json.loads((src/'build/tests/report.json').read_text())
-required_groups={'ota-host','archive','directory','flash','feed','dashboard-config-diagnostics'}
+required_groups={'ota-host','archive','directory','flash','feed','dashboard-config-diagnostics','teleprompter-file-gate'}
 require(tests['passed'] and required_groups.issubset(tests['groups']),'native_tests_required')
 dylib=src/'build/image-rx-lab/TurboIOPrivateAddon.dylib';data=dylib.read_bytes()
 require((BUNDLE+'\0').encode() in data and ('display extension='+MARKER+';').encode() in data,'compiled_identity_mismatch')
+require(b'TELE-FILE-FIX01\0' in data,'teleprompter_fix_not_compiled')
 amap=sdk_evidence(a.amap_sdk_root)
 symbols=subprocess.check_output(['xcrun','nm','-gU',str(dylib)],text=True)
 defined={line.split()[-1] for line in symbols.splitlines() if line.split()}
