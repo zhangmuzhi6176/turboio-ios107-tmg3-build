@@ -16,7 +16,10 @@ from setup_amap_11_3_100 import extract_framework
 class ResourceBoundaryTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
+        # macOS exposes its trusted temporary directory through the /var alias.
+        # Resolve only this freshly created fixture root; production paths retain
+        # the no-symlink check, including links created inside these tests.
+        self.root = Path(self.temp.name).resolve(strict=True)
         self.source, self.app = self.root / 'resources', self.root / 'Runner.app'
         self.source.mkdir()
         self.app.mkdir()
