@@ -1,4 +1,4 @@
-name: Build local Turbo IO iOS107 TMG3 addon
+name: Build Turbo IO iOS107 TMG3 with pinned AMap 11.3.100
 on:
   workflow_dispatch:
 permissions:
@@ -9,7 +9,7 @@ concurrency:
 jobs:
   build:
     runs-on: macos-15
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - name: Checkout build recipe
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -28,8 +28,12 @@ jobs:
           curl --fail --location --retry 3 "$release/Strix-OS-1.0.5.12-TMG3.zip" -o "$RUNNER_TEMP/tmg3.zip"
       - name: Audit firmware and generate separate edition
         run: python3 prepare.py --source-root upstream --stock "$RUNNER_TEMP/stock.zip" --firmware "$RUNNER_TEMP/tmg3.zip"
+      - name: Test SDK resource packaging boundaries
+        run: python3 -m unittest -v test_amap_support.py
       - name: Run native offline tests with sanitizers
         run: python3 upstream/official-addon/ios107-tmg3-edition/test.py --stock "$RUNNER_TEMP/stock.zip" --firmware "$RUNNER_TEMP/tmg3.zip"
+      - name: Fetch reviewed AMap 11.3.100 and verify SDK version headers
+        run: python3 setup_amap_11_3_100.py --sdk-root upstream/official-addon/build/amap-sdk --accept-sdk-terms
       - name: Build embedded arm64 iOS addon
         env:
           TIO_IMAGE_RX_LAB: '1'
@@ -38,10 +42,11 @@ jobs:
           TIO_DISPLAY_FLASH: '1'
           TIO_OTA_FLASH_ENABLED: '1'
           TIO_CLASSIC_BINDINGS: '1'
-          TIO_AMAP_ENABLED: '0'
+          TIO_AMAP_ENABLED: '1'
+          TIO_AMAP_SDK_ROOT: ${{ github.workspace }}/upstream/official-addon/build/amap-sdk
         run: bash upstream/official-addon/ios107-tmg3-edition/build.sh embedded com.turboio.rayneo.tmg3.local
       - name: Collect addon and nonsecret build evidence
-        run: python3 collect_artifact.py --edition upstream/official-addon/ios107-tmg3-edition --output artifact
+        run: python3 collect_artifact.py --edition upstream/official-addon/ios107-tmg3-edition --amap-sdk-root upstream/official-addon/build/amap-sdk --output artifact
       - name: Upload addon and test report
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:

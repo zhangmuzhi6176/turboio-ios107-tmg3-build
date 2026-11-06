@@ -8,6 +8,33 @@ import subprocess
 from pathlib import Path
 from audit_firmware import audit, require, UPSTREAM, BUNDLE, MARKER, CANDIDATE_SHA
 
+FEATURE_BASE_HASHES = {
+    'EditorCodec.h': '2045c746721687b1966c57d1897be31025f8b0bf9ed365e06e1001bfca126d5d',
+    'EditorCodec.m': '26a8a773395e7754e525bec58df1964dd72fbc05e3225d2ed4da57b93b8c1497',
+    'EditorTransport.h': 'da326e0df3bb3eb7ebc9f3d874736d5ab489bddaf859ea18ddaf1870219e4518',
+    'EditorTransport.m': 'ab27387793f66efb7ecfd12d7b2ad5e4820c1e1a54f2d1fa66a13320d9e6f463',
+    'EditorUI.m': '9f409ba1ef8e236f7cca6f3316a9a9e6b32cd25260f4b791d7c79832cd8f753d',
+}
+
+def apply_feature_overrides(target):
+    """Apply reviewed phone-only changes after checking their exact input files."""
+    overrides = Path(__file__).resolve().parent / 'addon-overrides'
+    test_name = 'DashboardConfigDiagnosticsTests.m'
+    names = set(FEATURE_BASE_HASHES) | {test_name}
+    require(overrides.is_dir(), 'missing_feature_overrides')
+    require({p.name for p in overrides.iterdir()} == names, 'unexpected_feature_override_inventory')
+    for name in sorted(names):
+        source = overrides / name
+        require(source.is_file() and not source.is_symlink(), 'unsafe_feature_override_' + name)
+        destination = target / name
+        if name in FEATURE_BASE_HASHES:
+            require(hashlib.sha256(destination.read_bytes()).hexdigest() == FEATURE_BASE_HASHES[name],
+                    'feature_input_changed_' + name)
+        else:
+            require(not destination.exists(), 'unexpected_existing_feature_test')
+        destination.write_text(source.read_text(encoding='utf-8'), encoding='utf-8', newline='\n')
+    return sorted(names)
+
 def replace_once(text, old, new, label):
     require(text.count(old)==1, 'unexpected_source_shape_'+label)
     return text.replace(old,new,1)
@@ -108,6 +135,10 @@ with tempfile.TemporaryDirectory(prefix='turbo-host-test-') as tmp:
         data[offset:offset+len(url)]=url
     patched.write_bytes(data)
     test('ota-host',['OTAHostTests.m'],[original,patched])""",'host_route_tests')
+    text=replace_once(text,"test('host',['HostCompatibilityTests.m'])",
+        "test('host',['HostCompatibilityTests.m'])\n"
+        "test('dashboard-config-diagnostics', ['DashboardConfigDiagnosticsTests.m', 'EditorCodec.m'], "
+        "extra=['-DTCE_DIAGNOSTIC_TEST=1'])",'dashboard_diagnostic_tests')
     file.write_text(text,encoding='utf-8',newline='\n')
     # Original signed packager is retained for reference but disabled here;
     # the separately audited Windows exporter produces an unsigned IPA.
@@ -120,11 +151,13 @@ with tempfile.TemporaryDirectory(prefix='turbo-host-test-') as tmp:
         'The stock 1.0.11 app is retained; this edition uses a different bundle ID.\n'
         'Exact firmware checks and manual, device-bound one-shot OTA remain enabled.\n'
         'No recovery or compatibility guarantee is implied.\n',encoding='utf-8')
+    changed.extend(apply_feature_overrides(target))
     manifest=dict(upstream=UPSTREAM,hostVersion='1.0.7',hostBuild='230',bundle=BUNDLE,marker=MARKER,
                   firmwareSHA256=CANDIDATE_SHA,deviceSourceVersions=['Strix OS 1.0.5.12'],
                   modifiedFiles=sorted(set(changed+['test.py','README.md'])),
                   restoredSharedFiles=shared,
                   deviceIO=False,runtimeValidated=False,sideBySide=True,
+                  dashboardDiagnostics='DASH-CONFIG-DIAG01',
                   sourceHashes={p.relative_to(target).as_posix():hashlib.sha256(p.read_bytes()).hexdigest()
                                 for p in target.rglob('*') if p.is_file() and p.suffix in ('.m','.h','.c','.sh')})
     (target/'local-build-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
