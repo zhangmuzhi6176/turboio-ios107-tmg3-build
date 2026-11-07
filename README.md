@@ -1,8 +1,36 @@
-# Turbo IO iOS 1.0.7 / TMG3 teleprompter repair, diagnostics and AMap build recipe
+# IO Companion independent iPhone app and legacy Turbo IO build recipes
 
 This repository contains public build instructions and source transformations only.
 It does not contain an IPA, Apple credentials, signing certificates, private settings,
-or device identifiers. GitHub Actions builds an ad-hoc addon, not an installable app.
+or device identifiers. The independent-app workflow produces an unsigned IPA as a
+temporary Actions artifact; the older workflow produces an addon for the host app.
+
+## Independent app: IO伴侣 0.1.0 / IO-COMPANION-DEV01
+
+`standalone.yml` exports pinned upstream source into an isolated build directory,
+verifies dependency hashes, applies `companion-overrides`, runs the dashboard logic
+checks and simulator unit tests, then builds an unsigned arm64 device app. Its
+separate bundle identifier is `com.leo.iocompanion`; the Swift module remains
+`RayNeoCompanion`. There is no original IPA or firmware input in this pipeline.
+
+The first build provides five phone tabs, local text notes with import/export and
+an explicit teleprompter handoff, phone dashboard data with freshness indicators,
+connection controls and manually enabled AI voice service configuration. Navigation
+is explicitly pending. The ambient conversation feature currently contains only a
+text model and tests: timestamped ASR text, optional anonymous speaker labels and
+uncertainty markers. Capture, transcription and transcript storage are not connected.
+
+Simulator tests and screenshots are not evidence of compatibility with real glasses.
+Pairing, teleprompter controls, glasses dashboard updates, navigation, ambient speech
+transcription and background behavior require separate physical acceptance. Opening
+the new root UI does not automatically scan, pair or start voice standby.
+
+The app retains upstream and third-party notices. Device communications reuse the
+vendor frameworks described in the pinned source; this is not a clean-room SDK.
+Unsigned output must be locally signed before installation. No installation or
+firmware operation is performed by the build workflow.
+
+## Legacy Turbo IO iOS 1.0.7 / TMG3 addon recipe
 
 Inputs are pinned to Turbo1123/Turbo-IO commit
 `f983669a2db1c2a658f7d4c50285b81aa074345a` and the public Strix OS 1.0.5.12

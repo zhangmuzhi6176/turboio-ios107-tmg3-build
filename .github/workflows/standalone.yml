@@ -1,0 +1,50 @@
+name: Build IO Companion independent iPhone app
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: iocompanion-independent-dev01
+  cancel-in-progress: false
+jobs:
+  build:
+    if: github.ref == 'refs/heads/codex/independent-app-20261107'
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact build recipe revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Fetch pinned standalone source and dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --no-checkout https://github.com/Turbo1123/Turbo-IO.git upstream
+          git -C upstream sparse-checkout init --cone
+          git -C upstream sparse-checkout set apps/RayNeoCompanion core-probe/Sources core-probe/Frameworks core-probe/RecoveredInterface core-probe/Vendor rayneo-protocol rayneo-display rayneo-session rayneo-archive rayneo-audio-container third-party
+          git -C upstream checkout --detach f983669a2db1c2a658f7d4c50285b81aa074345a
+      - name: Prepare isolated source and verify every dependency
+        run: python3 standalone_prepare.py --upstream upstream --output build/standalone
+      - name: Ensure project generator is available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install xcodegen
+          fi
+          xcodebuild -version
+          xcodegen --version
+      - name: Test simulator and build unsigned independent device app
+        run: python3 standalone_build.py --prepared build/standalone --artifacts artifact/standalone
+      - name: Upload unsigned IPA and verification evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: iocompanion-independent-dev01
+          path: |
+            artifact/standalone/
+            build/standalone/preparation-manifest.json
+          if-no-files-found: warn
+          retention-days: 3
