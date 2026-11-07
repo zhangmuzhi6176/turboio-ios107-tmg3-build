@@ -14,7 +14,7 @@ import sys
 import time
 import zipfile
 
-from standalone_prepare import BUNDLE_ID, BUILD_MARKER, UPSTREAM_COMMIT, file_records, sha256, tree_hash, write_json
+from standalone_prepare import BUNDLE_ID, BUILD_MARKER, SIMULATOR_APP_IDENTIFIER, UPSTREAM_COMMIT, file_records, sha256, tree_hash, write_json
 
 
 class Builder:
@@ -114,6 +114,28 @@ class Builder:
         finally:
             self.save_report()
 
+    def verify_simulator_signature(self, app: Path) -> None:
+        self.run("simulator-signature-verify", ["/usr/bin/codesign", "--verify", "--strict", str(app)], timeout=30)
+        identity = self.run("simulator-signature-identity", ["/usr/bin/codesign", "--display", "--verbose=4", str(app)], timeout=30)
+        if "Signature=adhoc" not in identity:
+            raise RuntimeError("Simulator host must use a local ad-hoc signature, not an Apple signing identity")
+        output = self.run("simulator-signature-entitlements", ["/usr/bin/codesign", "--display", "--entitlements", "-", "--xml", str(app)], timeout=30)
+        start = output.find("<?xml")
+        end = output.find("</plist>", start)
+        if start < 0 or end < 0:
+            raise RuntimeError("Cannot read the signed simulator host entitlements")
+        entitlements = plistlib.loads(output[start:end + len("</plist>")].encode("utf-8"))
+        if (entitlements.get("application-identifier") != SIMULATOR_APP_IDENTIFIER
+                or entitlements.get("keychain-access-groups") != [SIMULATOR_APP_IDENTIFIER]
+                or entitlements.get("get-task-allow") is not True):
+            raise RuntimeError("Simulator host has no exact local default keychain group or test-debug permission")
+        evidence = {"signature": "ad-hoc", "verified": True, "physicalDeviceValidated": False,
+                    "applicationIdentifier": entitlements["application-identifier"],
+                    "keychainAccessGroups": entitlements["keychain-access-groups"],
+                    "scope": "simulator test host only"}
+        self.report["simulatorSigning"] = evidence
+        write_json(self.reports / "simulator-signing.json", evidence)
+
     def package(self, app: Path) -> dict:
         if not app.is_dir():
             raise RuntimeError("Release app bundle not found")
@@ -177,18 +199,24 @@ class Builder:
         simulator = self.simulator()
         sim_derived = self.prepared / "derived-simulator"
         result = self.prepared / "unit-tests.xcresult"
-        self.run("simulator-unit-tests", ["xcodebuild", "test", "-project", project, "-scheme", "RayNeoCompanion",
+        simulator_args = ["-project", project, "-scheme", "RayNeoCompanion",
             "-configuration", "Debug", "-sdk", "iphonesimulator", "-destination", "id=" + simulator,
-            "-derivedDataPath", str(sim_derived), "-resultBundlePath", str(result),
+            "-derivedDataPath", str(sim_derived),
             "-only-testing:RayNeoCompanionTests", "-parallel-testing-enabled", "NO",
-            "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO", "CODE_SIGN_IDENTITY="], timeout=1100)
+            "CODE_SIGNING_ALLOWED=YES", "CODE_SIGNING_REQUIRED=YES", "CODE_SIGN_IDENTITY=-",
+            "CODE_SIGN_STYLE=Manual", "DEVELOPMENT_TEAM=", "PROVISIONING_PROFILE_SPECIFIER="]
+        self.run("simulator-build-for-testing", ["xcodebuild", "build-for-testing", *simulator_args], timeout=900)
+        simulator_app = sim_derived / "Build/Products/Debug-iphonesimulator/RayNeoCompanion.app"
+        self.verify_simulator_signature(simulator_app)
+        self.run("simulator-unit-tests", ["xcodebuild", "test-without-building", *simulator_args,
+            "-resultBundlePath", str(result)], timeout=600)
         summary = self.run("simulator-test-summary", ["xcrun", "xcresulttool", "get", "test-results", "summary", "--path", str(result)], timeout=60, required=False)
         try:
             write_json(self.reports / "simulator-test-summary.json", json.loads(summary))
         except json.JSONDecodeError:
             self.report["testSummaryNote"] = "Compact xcresult export unavailable; successful xcodebuild test log retained."
         if screenshots:
-            self.screenshots(simulator, sim_derived / "Build/Products/Debug-iphonesimulator/RayNeoCompanion.app")
+            self.screenshots(simulator, simulator_app)
         device_derived = self.prepared / "derived-device"
         self.run("device-unsigned-release", ["xcodebuild", "build", "-project", project,
             "-scheme", "RayNeoCompanionDevice", "-configuration", "Release", "-sdk", "iphoneos",
@@ -199,6 +227,7 @@ class Builder:
                                   "dashboardNativeTests": "passed", "physicalDeviceValidated": False}
         manifest["package"] = package
         manifest["tools"] = self.report["tools"]
+        manifest["simulatorSigning"] = self.report["simulatorSigning"]
         manifest["builtAtUTC"] = datetime.now(timezone.utc).isoformat()
         write_json(self.artifacts / "build-manifest.json", manifest)
         self.report["package"] = package

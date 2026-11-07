@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
+import plistlib
 import re
 import shutil
 import subprocess
@@ -17,6 +18,7 @@ UPSTREAM_COMMIT = "f983669a2db1c2a658f7d4c50285b81aa074345a"
 UPSTREAM_URL = "https://github.com/Turbo1123/Turbo-IO.git"
 BUNDLE_ID = "com.leo.iocompanion"
 BUILD_MARKER = "IO-COMPANION-DEV01"
+SIMULATOR_APP_IDENTIFIER = "IOCOMPSIM1." + BUNDLE_ID
 EXPORT_PATHS = (
     "apps/RayNeoCompanion", "core-probe/Sources", "core-probe/Frameworks",
     "core-probe/RecoveredInterface", "core-probe/Vendor", "rayneo-protocol",
@@ -193,8 +195,19 @@ def patch_device_spec(source: Path) -> None:
         ("      properties:\n", "      properties:\n        NSLocationWhenInUseUsageDescription: 在你手动开启时读取当前位置，用于显示实测速度和海拔。\n", 2, "foreground location permission"),
     ):
         text = replace_exact(text, old, new, count, label)
+    text = replace_exact(text,
+        "        PRODUCT_MODULE_NAME: RayNeoCompanion\n        GENERATE_INFOPLIST_FILE: YES",
+        "        PRODUCT_MODULE_NAME: RayNeoCompanion\n"
+        '        "CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]": SimulatorKeychain.entitlements\n'
+        "        GENERATE_INFOPLIST_FILE: YES", 1, "simulator test host keychain entitlements")
     text = text.replace("为Turbo IO本机待办", "为IO伴侣本机待办").replace("Turbo IO仅执行读取", "IO伴侣仅执行读取")
     path.write_text(text, encoding="utf-8", newline="\n")
+    # A simulator-only local identity, never an Apple Team or a device provisioning claim.
+    (path.parent / "SimulatorKeychain.entitlements").write_bytes(plistlib.dumps({
+        "application-identifier": SIMULATOR_APP_IDENTIFIER,
+        "keychain-access-groups": [SIMULATOR_APP_IDENTIFIER],
+        "get-task-allow": True,
+    }, fmt=plistlib.FMT_XML, sort_keys=True))
 
 
 def patch_explicit_voice_start(source: Path) -> None:
@@ -256,6 +269,8 @@ def prepare(upstream: Path, output: Path, recipe: Path) -> dict:
         "recipeCommit": git(recipe, "rev-parse", "HEAD"), "recipeWorkingTreeDirty": bool(git(recipe, "status", "--porcelain")),
         "bundleIdentifier": BUNDLE_ID, "displayName": "IO伴侣", "marketingVersion": "0.1.0", "buildVersion": "1",
         "swiftModule": "RayNeoCompanion", "dependencyVerification": dependencies,
+        "simulatorSigning": {"identity": "ad-hoc (-)", "applicationIdentifier": SIMULATOR_APP_IDENTIFIER,
+                             "realAppleTeamRequired": False, "scope": "RayNeoCompanion test host, iphonesimulator SDK only"},
         "namespaceMap": NAMESPACE_MAP, "namespaceChanges": namespace_changes,
         "targetedPatches": [
             {"path": "core-probe/Sources/App.swift", "operation": "disable initial cloud mode", "count": 1},
