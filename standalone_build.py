@@ -207,6 +207,12 @@ class Builder:
             "CODE_SIGN_STYLE=Manual", "DEVELOPMENT_TEAM=", "PROVISIONING_PROFILE_SPECIFIER="]
         self.run("simulator-build-for-testing", ["xcodebuild", "build-for-testing", *simulator_args], timeout=900)
         simulator_app = sim_derived / "Build/Products/Debug-iphonesimulator/RayNeoCompanion.app"
+        # Xcode also embeds simulator entitlements in a Mach-O section while its
+        # ad-hoc code signature may contain an empty dictionary. Make the same
+        # local test permissions explicit in the signature before verifying it.
+        self.run("simulator-explicit-ad-hoc-sign", ["/usr/bin/codesign", "--force", "--sign", "-",
+            "--entitlements", str(self.source / "apps/RayNeoCompanion/SimulatorKeychain.entitlements"),
+            "--generate-entitlement-der", str(simulator_app)], timeout=60)
         self.verify_simulator_signature(simulator_app)
         self.run("simulator-unit-tests", ["xcodebuild", "test-without-building", *simulator_args,
             "-resultBundlePath", str(result)], timeout=600)
