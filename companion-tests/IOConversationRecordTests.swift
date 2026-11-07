@@ -22,13 +22,20 @@ final class IOConversationRecordTests: XCTestCase {
         let second = try segment("眼镜测试", start: 4_000, end: 5_000)
         let value = try record([first, second])
         let hits = try value.matches(containing: "眼镜")
-        XCTAssertEqual(hits.map(\.segment.id), [first.id, second.id])
-        XCTAssertEqual(Data(hits[0].segment.recognizedText.utf8), Data(original.utf8))
+        var hitIDs: [UUID] = []
+        for hit in hits { hitIDs.append(hit.segment.id) }
+        let expectedIDs: [UUID] = [first.id, second.id]
+        XCTAssertEqual(hitIDs, expectedIDs)
+        let actualBytes = Data(hits[0].segment.recognizedText.utf8)
+        let originalBytes = Data(original.utf8)
+        XCTAssertEqual(actualBytes, originalBytes)
         XCTAssertEqual(hits[0].sessionID, value.id)
         XCTAssertEqual(hits[0].startUTC, start.addingTimeInterval(1.25))
         XCTAssertEqual(hits[0].endUTC, start.addingTimeInterval(3.75))
-        XCTAssertEqual(try value.matches(containing: "眼镜", limit: 1).count, 1)
-        XCTAssertTrue(try value.matches(containing: "不存在").isEmpty)
+        let limitedHits = try value.matches(containing: "眼镜", limit: 1)
+        let missingHits = try value.matches(containing: "不存在")
+        XCTAssertEqual(limitedHits.count, 1)
+        XCTAssertTrue(missingHits.isEmpty)
     }
 
     func testTimeZonesDoNotChangeTheStoredInstants() throws {
@@ -41,31 +48,41 @@ final class IOConversationRecordTests: XCTestCase {
         let b = try IOConversationRecord(id: a.id, startedAtUTC: shanghai,
                                          endedAtUTC: shanghai.addingTimeInterval(3), segments: [piece])
         XCTAssertEqual(a, b)
-        XCTAssertEqual(try a.matches(containing: "原文"), try b.matches(containing: "原文"))
+        let utcMatches = try a.matches(containing: "原文")
+        let shanghaiMatches = try b.matches(containing: "原文")
+        XCTAssertEqual(utcMatches, shanghaiMatches)
     }
 
     func testRejectsInvalidSessionAndSegmentTimes() throws {
         XCTAssertThrowsError(try record([], seconds: -1))
-        for bad in [Double.nan, Double.infinity, -Double.infinity] {
-            XCTAssertThrowsError(try IOConversationRecord(startedAtUTC: Date(timeIntervalSince1970: bad),
+        let invalidDates: [Double] = [Double.nan, Double.infinity, -Double.infinity]
+        for bad in invalidDates {
+            let invalidDate = Date(timeIntervalSince1970: bad)
+            XCTAssertThrowsError(try IOConversationRecord(startedAtUTC: invalidDate,
                                                            endedAtUTC: start, segments: []))
             XCTAssertThrowsError(try IOConversationRecord(startedAtUTC: start,
-                                                           endedAtUTC: Date(timeIntervalSince1970: bad), segments: []))
+                                                           endedAtUTC: invalidDate, segments: []))
         }
         XCTAssertThrowsError(try segment(start: -1))
         XCTAssertThrowsError(try segment(start: 2_000, end: 1_000))
         XCTAssertThrowsError(try segment(end: Int64.max))
-        XCTAssertThrowsError(try record([segment(end: 60_001)]))
-        XCTAssertNoThrow(try record([segment(end: 60_000)]))
-        XCTAssertNoThrow(try record([], seconds: 8 * 60 * 60))
-        XCTAssertThrowsError(try record([], seconds: 8 * 60 * 60 + 0.001))
+        let outside = try segment(end: 60_001)
+        let boundary = try segment(end: 60_000)
+        XCTAssertThrowsError(try record([outside]))
+        XCTAssertNoThrow(try record([boundary]))
+        let maximumSeconds: Double = 28_800.0
+        let excessiveSeconds: Double = maximumSeconds + 0.001
+        XCTAssertNoThrow(try record([], seconds: maximumSeconds))
+        XCTAssertThrowsError(try record([], seconds: excessiveSeconds))
     }
 
     func testPreservesOrderedOverlapsButRejectsReversalAndDuplicateIDs() throws {
         let first = try segment("甲", start: 0, end: 5_000, speaker: "speaker-1")
         let overlapping = try segment("乙", start: 1_000, end: 3_000, speaker: "speaker-2")
         let equalStart = try segment("丙", start: 1_000, end: 2_000)
-        XCTAssertEqual(try record([first, overlapping, equalStart]).segments, [first, overlapping, equalStart])
+        let expected: [IOConversationSegment] = [first, overlapping, equalStart]
+        let ordered = try record(expected)
+        XCTAssertEqual(ordered.segments, expected)
         XCTAssertThrowsError(try record([overlapping, first]))
         XCTAssertThrowsError(try record([first, first]))
     }
@@ -74,7 +91,9 @@ final class IOConversationRecordTests: XCTestCase {
         let gap = try segment("", start: 1_000, end: 2_000, unclear: true)
         XCTAssertNil(gap.speakerLabel)
         XCTAssertNil(gap.confidence)
-        XCTAssertTrue(try record([gap]).matches(containing: "听不清").isEmpty)
+        let gapRecord = try record([gap])
+        let gapMatches = try gapRecord.matches(containing: "听不清")
+        XCTAssertTrue(gapMatches.isEmpty)
         XCTAssertThrowsError(try segment(""))
         XCTAssertThrowsError(try segment(" \n\t"))
         XCTAssertThrowsError(try segment("", start: 1_000, end: 1_000, unclear: true))
@@ -88,23 +107,31 @@ final class IOConversationRecordTests: XCTestCase {
         }
         XCTAssertNoThrow(try segment(speaker: "speaker-1", confidence: 0))
         XCTAssertNoThrow(try segment(speaker: "speaker-999", confidence: 1))
-        for bad in [-0.1, 1.01, Double.nan, Double.infinity] {
+        let invalidConfidence: [Double] = [-0.1, 1.01, Double.nan, Double.infinity]
+        for bad in invalidConfidence {
             XCTAssertThrowsError(try segment(confidence: bad))
         }
     }
 
     func testUTF8ByteBoundsAndConfigurableSegmentLimit() throws {
-        let cap = IOConversationBounds.defaultSegmentTextBytes
+        let cap: Int = IOConversationBounds.defaultSegmentTextBytes
         let exact = String(repeating: "a", count: cap)
+        let excessiveText = exact + "a"
+        let excessiveChineseCount: Int = cap / 3 + 1
+        let excessiveChineseText = String(repeating: "中", count: excessiveChineseCount)
+        let largerLimit: Int = cap + 1
         XCTAssertNoThrow(try segment(exact))
-        XCTAssertThrowsError(try segment(exact + "a"))
-        XCTAssertThrowsError(try segment(String(repeating: "中", count: cap / 3 + 1)))
+        XCTAssertThrowsError(try segment(excessiveText))
+        XCTAssertThrowsError(try segment(excessiveChineseText))
         let larger = try IOConversationSegment(startMilliseconds: 0, endMilliseconds: 1_000,
-                                               recognizedText: exact + "a", maximumTextBytes: cap + 1)
+                                               recognizedText: excessiveText, maximumTextBytes: largerLimit)
         XCTAssertThrowsError(try record([larger]))
-        XCTAssertNoThrow(try IOConversationRecord(startedAtUTC: start, endedAtUTC: start.addingTimeInterval(1),
-                                                  segments: [larger], maximumSegmentTextBytes: cap + 1))
-        for invalid in [0, -1, IOConversationBounds.maximumTextBytes + 1, Int.max] {
+        let oneSecondLater = start.addingTimeInterval(1)
+        XCTAssertNoThrow(try IOConversationRecord(startedAtUTC: start, endedAtUTC: oneSecondLater,
+                                                  segments: [larger], maximumSegmentTextBytes: largerLimit))
+        let overTotalLimit: Int = IOConversationBounds.maximumTextBytes + 1
+        let invalidLimits: [Int] = [0, -1, overTotalLimit, Int.max]
+        for invalid in invalidLimits {
             XCTAssertThrowsError(try IOConversationRecord(startedAtUTC: start, endedAtUTC: start,
                                                            segments: [], maximumSegmentTextBytes: invalid))
         }
@@ -112,28 +139,45 @@ final class IOConversationRecordTests: XCTestCase {
 
     func testTotalTextAndSegmentCountExactLimits() throws {
         let block = String(repeating: "a", count: IOConversationBounds.defaultSegmentTextBytes)
-        var full = try (0..<32).map { index in
-            try segment(block, start: Int64(index * 1_000), end: Int64((index + 1) * 1_000))
+        var full: [IOConversationSegment] = []
+        full.reserveCapacity(33)
+        for index in 0..<32 {
+            let startMilliseconds: Int64 = Int64(index) * 1_000
+            let endMilliseconds: Int64 = startMilliseconds + 1_000
+            let piece = try segment(block, start: startMilliseconds, end: endMilliseconds)
+            full.append(piece)
         }
         XCTAssertNoThrow(try record(full))
-        full.append(try segment("a", start: 32_000, end: 33_000))
+        let overflowPiece = try segment("a", start: 32_000, end: 33_000)
+        full.append(overflowPiece)
         XCTAssertThrowsError(try record(full))
-        var many = try (0..<IOConversationBounds.maximumSegments).map { index in
-            try segment("字", start: Int64(index), end: Int64(index + 1))
+        var many: [IOConversationSegment] = []
+        let maximumSegments: Int = IOConversationBounds.maximumSegments
+        many.reserveCapacity(maximumSegments + 1)
+        for index in 0..<maximumSegments {
+            let startMilliseconds: Int64 = Int64(index)
+            let endMilliseconds: Int64 = startMilliseconds + 1
+            let piece = try segment("字", start: startMilliseconds, end: endMilliseconds)
+            many.append(piece)
         }
         XCTAssertNoThrow(try record(many))
-        many.append(try segment("字", start: 10_000, end: 10_001))
+        let overflowCountPiece = try segment("字", start: 10_000, end: 10_001)
+        many.append(overflowCountPiece)
         XCTAssertThrowsError(try record(many))
     }
 
     func testSearchIsBoundedAndCaseInsensitiveWithoutChangingOriginal() throws {
         let piece = try segment("DeepSeek 原文")
         let value = try record([piece])
-        XCTAssertEqual(try value.matches(containing: "deepseek").first?.segment, piece)
-        for invalid in ["", " \n", String(repeating: "中", count: 171)] {
+        let caseInsensitiveHits = try value.matches(containing: "deepseek")
+        XCTAssertEqual(caseInsensitiveHits.first?.segment, piece)
+        let excessiveQuery = String(repeating: "中", count: 171)
+        let invalidQueries: [String] = ["", " \n", excessiveQuery]
+        for invalid in invalidQueries {
             XCTAssertThrowsError(try value.matches(containing: invalid))
         }
-        for invalid in [0, -1, 1_001, Int.max] {
+        let invalidLimits: [Int] = [0, -1, 1_001, Int.max]
+        for invalid in invalidLimits {
             XCTAssertThrowsError(try value.matches(containing: "原文", limit: invalid))
         }
     }

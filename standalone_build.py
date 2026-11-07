@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import plistlib
+import re
 import shutil
 import subprocess
 import sys
@@ -46,6 +47,10 @@ class Builder:
         # The first line is our command, not tool output.
         output = text.partition("\n")[2]
         if code != 0:
+            diagnostics = [line for line in output.splitlines()
+                           if re.search(r"\.(swift|m|mm|c|h):\d+:.*(?:error|warning):", line)]
+            if diagnostics:
+                print("\n".join(diagnostics[-30:]), flush=True)
             print(output[-8000:], flush=True)
             if required:
                 raise RuntimeError(f"{label} failed; see reports/{label}.log")
