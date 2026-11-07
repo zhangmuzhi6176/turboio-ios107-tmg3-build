@@ -1,6 +1,14 @@
 name: Build IO Companion independent iPhone app
 on:
   workflow_dispatch:
+  push:
+    branches: [codex/independent-app-20261107]
+    paths:
+      - .github/workflows/standalone.yml
+      - standalone_prepare.py
+      - standalone_build.py
+      - companion-overrides/**
+      - companion-tests/**
 permissions:
   contents: read
 concurrency:
